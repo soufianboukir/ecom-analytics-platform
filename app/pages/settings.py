@@ -54,7 +54,7 @@ mask = (
 fdf = df[mask]
 
 # ─────────────────────────────────────────────────────────────
-# LOAD DATA (expects fdf already filtered from Page 1 sidebar)
+# LOAD DATA 
 # ─────────────────────────────────────────────────────────────
 
 df_ts = (
