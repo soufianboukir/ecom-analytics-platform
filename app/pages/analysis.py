@@ -24,7 +24,7 @@ DATA_PATH = BASE_DIR / "data" / "processed" / "amazon_sales_final.csv"
 def load():
     df = pd.read_csv(DATA_PATH)
     df["OrderDate"] = pd.to_datetime(df["OrderDate"], dayfirst=True, errors="coerce")
-    df = df.dropna(subset=["OrderDate"])  # drop rows where date failed to parse
+    df = df.dropna(subset=["OrderDate"])
     return df
 
 df = load()
@@ -128,13 +128,14 @@ with c1:
         y="TotalAmount",
         title="Discount vs Revenue",
         opacity=0.6,
-        color="Category",
         template="plotly_white"
     )
-    fig4.update_layout(margin=dict(l=0, r=0, t=36, b=0),
-                       height=280,
-                       xaxis_title=None,
-                       yaxis_title=None)
+    fig4.update_layout(
+        margin=dict(l=0, r=0, t=36, b=0),
+        height=280,
+        xaxis_title=None,
+        yaxis_title=None
+    )
     st.plotly_chart(fig4, use_container_width=True)
 
 with c2:
@@ -145,10 +146,12 @@ with c2:
         title="Shipping Cost Distribution by Country",
         template="plotly_white"
     )
-    fig5.update_layout(margin=dict(l=0, r=0, t=36, b=0),
-                       height=280,
-                       xaxis_title=None,
-                       yaxis_title=None)
+    fig5.update_layout(
+        margin=dict(l=0, r=0, t=36, b=0),
+        height=280,
+        xaxis_title=None,
+        yaxis_title=None
+    )
     st.plotly_chart(fig5, use_container_width=True)
 
 st.write("")
@@ -166,13 +169,6 @@ pivot = (
     )
 )
 
-# Ensure proper month order
-month_order = [
-    "January","February","March","April","May","June",
-    "July","August","September","October","November","December"
-]
-pivot = pivot.reindex(month_order)
-
 fig6 = px.imshow(
     pivot,
     aspect="auto",
@@ -182,9 +178,12 @@ fig6 = px.imshow(
 
 fig6.update_layout(
     margin=dict(l=0, r=0, t=36, b=0),
-    height=320,
+    height=500,  # ↑ increase height (main factor)
     xaxis_title=None,
     yaxis_title=None
 )
+
+# Optional: make labels clearer (helps perception of size)
+fig6.update_xaxes(tickangle=45)
 
 st.plotly_chart(fig6, use_container_width=True)
