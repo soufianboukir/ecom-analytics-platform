@@ -1,7 +1,6 @@
 import streamlit as st
 import pandas as pd
 import numpy as np
-import plotly.express as px
 import plotly.graph_objects as go
 
 from sklearn.linear_model import LinearRegression
@@ -15,6 +14,17 @@ st.caption("Multi-model time series forecasting & comparison")
 st.divider()
 
 # ─────────────────────────────────────────────────────────────
+# CONSTANTS
+# ─────────────────────────────────────────────────────────────
+
+TEST_SIZE    = 6
+FORECAST_HORIZON = 12
+N_LAGS       = 6
+FEATURE_COLS_BASE = [f"lag_{i}" for i in range(1, N_LAGS + 1)] + [
+    "rolling_mean_3", "month_num", "year"
+]
+
+# ─────────────────────────────────────────────────────────────
 # LOAD DATA
 # ─────────────────────────────────────────────────────────────
 
@@ -22,11 +32,10 @@ BASE_DIR  = Path(__file__).resolve().parent.parent.parent
 DATA_PATH = BASE_DIR / "data" / "processed" / "amazon_sales_final.csv"
 
 @st.cache_data
-def load():
+def load() -> pd.DataFrame:
     df = pd.read_csv(DATA_PATH)
     df["OrderDate"] = pd.to_datetime(df["OrderDate"], dayfirst=True, errors="coerce")
-    df = df.dropna(subset=["OrderDate"])
-    return df
+    return df.dropna(subset=["OrderDate"])
 
 df = load()
 
@@ -36,31 +45,25 @@ df = load()
 
 st.sidebar.header("Global Filters")
 
-# FIX 1: guard against single-date selection (returns a single date, not a tuple)
 date_input = st.sidebar.date_input(
     "Date Range",
-    value=[df["OrderDate"].min().date(), df["OrderDate"].max().date()]
+    value=[df["OrderDate"].min().date(), df["OrderDate"].max().date()],
 )
 if isinstance(date_input, (list, tuple)) and len(date_input) == 2:
     start_date, end_date = date_input
 else:
     start_date = end_date = date_input
 
-mask = (
-    df["OrderDate"].between(pd.Timestamp(start_date), pd.Timestamp(end_date))
-)
-fdf = df[mask]
+fdf = df[df["OrderDate"].between(pd.Timestamp(start_date), pd.Timestamp(end_date))]
 
-# FIX 2: stop early if filters return no data
 if fdf.empty:
     st.warning("No data matches the selected filters. Please adjust the sidebar.")
     st.stop()
 
 # ─────────────────────────────────────────────────────────────
-# AGGREGATE TO MONTHLY REVENUE
+# AGGREGATE → MONTHLY REVENUE
 # ─────────────────────────────────────────────────────────────
 
-# FIX 3: use "MS" (month-start) instead of "ME" — Prophet requires month-start
 monthly_revenue = (
     fdf.set_index("OrderDate")["TotalAmount"]
     .resample("MS")
@@ -68,137 +71,152 @@ monthly_revenue = (
     .sort_index()
 )
 
-# FIX 4: fill any missing months so the series is always contiguous
-full_range      = pd.date_range(monthly_revenue.index.min(),
-                                monthly_revenue.index.max(), freq="MS")
+# Fill any gaps so the series is always contiguous
+full_range = pd.date_range(
+    monthly_revenue.index.min(), monthly_revenue.index.max(), freq="MS"
+)
 monthly_revenue = monthly_revenue.reindex(full_range, fill_value=0)
 monthly_revenue.name = "Revenue"
 
-# Need at least 18 months: 12 for lag features + 6 for test
-if len(monthly_revenue) < 18:
+MIN_MONTHS = N_LAGS + 6 + TEST_SIZE   # lags + rolling window safety + test
+if len(monthly_revenue) < MIN_MONTHS:
     st.error(
         f"Not enough monthly data ({len(monthly_revenue)} months). "
-        "Need at least 18 months. Try widening the date range or removing filters."
+        f"Need at least {MIN_MONTHS} months. Try widening the date range."
     )
     st.stop()
 
 # ─────────────────────────────────────────────────────────────
-# FEATURE ENGINEERING  (ML models only — no leakage)
+# HELPERS
 # ─────────────────────────────────────────────────────────────
 
-df_ts = pd.DataFrame({"Month": monthly_revenue.index, "Revenue": monthly_revenue.values})
-
-for lag in range(1, 7):
-    df_ts[f"lag_{lag}"] = df_ts["Revenue"].shift(lag)
-
-# FIX 5: shift before rolling to avoid using the current row's own value
-df_ts["rolling_mean_3"] = df_ts["Revenue"].shift(1).rolling(3).mean()
-
-df_ts["month_num"] = df_ts["Month"].dt.month
-df_ts["year"]      = df_ts["Month"].dt.year
-
-df_ts = df_ts.dropna().reset_index(drop=True)
+def build_features(series):
+    df_feat = pd.DataFrame({"Month": series.index, "Revenue": series.values})
+    for lag in range(1, N_LAGS + 1):
+        df_feat[f"lag_{lag}"] = df_feat["Revenue"].shift(lag)
+    df_feat["rolling_mean_3"] = df_feat["Revenue"].shift(1).rolling(3).mean()
+    df_feat["month_num"] = df_feat["Month"].dt.month
+    df_feat["year"]      = df_feat["Month"].dt.year
+    return df_feat.dropna().reset_index(drop=True)
 
 
-st.subheader("Lagged Dataset Preview")
-st.dataframe(df_ts.head(10))
+def compute_metrics(name, y_true, y_pred):
+    mask = y_true != 0
+    mape = (
+        round(np.mean(np.abs((y_true[mask] - y_pred[mask]) / y_true[mask])) * 100, 2)
+        if mask.any() else float("nan")
+    )
+    return {
+        "Model":    name,
+        "MAE":      round(mean_absolute_error(y_true, y_pred), 2),
+        "RMSE":     round(np.sqrt(mean_squared_error(y_true, y_pred)), 2),
+        "R²":       round(r2_score(y_true, y_pred), 4),
+        "MAPE (%)": mape,
+    }
+
+
+def xgb_recursive_forecast(model,history,horizon,):
+    known = list(history.values)
+    last_date = history.index[-1]
+    future_dates = pd.date_range(last_date + pd.offsets.MonthBegin(1),
+                                  periods=horizon, freq="MS")
+    preds = []
+
+    for step, future_date in enumerate(future_dates):
+        lags = [known[-(i)] for i in range(1, N_LAGS + 1)]
+        rolling_mean_3 = np.mean(known[-3:])
+        month_num = future_date.month
+        year      = future_date.year
+
+        row = np.array([*lags, rolling_mean_3, month_num, year], dtype=float).reshape(1, -1)
+        pred = float(model.predict(row)[0])
+        pred = max(pred, 0)
+        preds.append(pred)
+        known.append(pred)
+
+    return future_dates, np.array(preds)
 
 # ─────────────────────────────────────────────────────────────
-# TRAIN / TEST SPLIT  (time-based, no shuffling)
+# FEATURE ENGINEERING & SPLIT
 # ─────────────────────────────────────────────────────────────
 
-TEST_SIZE = 6
+df_ts = build_features(monthly_revenue)
+
+with st.expander("Lagged Dataset Preview"):
+    st.dataframe(df_ts.head(10), use_container_width=True)
 
 train = df_ts.iloc[:-TEST_SIZE].copy()
 test  = df_ts.iloc[-TEST_SIZE:].copy()
 
-FEATURE_COLS = [c for c in df_ts.columns if c not in ("Month", "Revenue")]
-
-X_train, y_train = train[FEATURE_COLS], train["Revenue"]
-X_test,  y_test  = test[FEATURE_COLS],  test["Revenue"]
+X_train, y_train = train[FEATURE_COLS_BASE], train["Revenue"]
+X_test,  y_test  = test[FEATURE_COLS_BASE],  test["Revenue"]
 
 # ─────────────────────────────────────────────────────────────
-# MODELS
+# MODEL TRAINING  (cached so rerun doesn't refit)
 # ─────────────────────────────────────────────────────────────
 
-# 1. Naive baseline — previous month's actual revenue
-# FIX 6: use .values to avoid index misalignment in metrics
-naive_pred = test["lag_1"].values
+@st.cache_data
+def train_models(
+    X_tr, y_tr,prophet_train_df):
+    # Linear Regression
+    lr = LinearRegression()
+    lr.fit(X_tr, y_tr)
 
-# 2. Linear Regression
-lr = LinearRegression()
-lr.fit(X_train, y_train)
-lr_pred = lr.predict(X_test)
+    # XGBoost
+    xgb = XGBRegressor(
+        n_estimators=300,
+        learning_rate=0.05,
+        max_depth=4,
+        subsample=0.8,
+        colsample_bytree=0.8,
+        random_state=42,
+        verbosity=0,
+    )
+    xgb.fit(X_tr, y_tr)
 
-# 3. XGBoost
-xgb = XGBRegressor(
-    n_estimators=300,
-    learning_rate=0.05,
-    max_depth=4,
-    random_state=42,
-    verbosity=0,
-)
-xgb.fit(X_train, y_train)
-xgb_pred = xgb.predict(X_test)
+    # Prophet
+    prophet_model = Prophet(
+        yearly_seasonality=True,
+        weekly_seasonality=False,
+        daily_seasonality=False,
+        seasonality_mode="multiplicative",
+    )
+    prophet_model.fit(prophet_train_df)
 
-# ─────────────────────────────────────────────────────────────
-# PROPHET
-# FIX 7: use the full monthly_revenue series (before NaN-drop from lag
-#         engineering) so Prophet sees all months including the early ones
-# ─────────────────────────────────────────────────────────────
+    return lr, xgb, prophet_model
 
-prophet_train_end = test["Month"].iloc[0]  # first test month
 
-prophet_df = pd.DataFrame({
+prophet_train_end = test["Month"].iloc[0]
+prophet_train_df  = pd.DataFrame({
     "ds": monthly_revenue.index,
     "y":  monthly_revenue.values,
-})
-prophet_train_df = prophet_df[prophet_df["ds"] < prophet_train_end]
+})[lambda d: d["ds"] < prophet_train_end]
 
-prophet_model = Prophet(
-    yearly_seasonality=True,
-    weekly_seasonality=False,
-    daily_seasonality=False,
-    seasonality_mode="multiplicative",
+lr, xgb, prophet_model = train_models(
+    X_train, y_train, prophet_train_df
 )
-prophet_model.fit(prophet_train_df)
 
-# FIX 8: Prophet make_future_dataframe needs freq="MS" to match our index
-future   = prophet_model.make_future_dataframe(periods=TEST_SIZE, freq="MS")
-forecast = prophet_model.predict(future)
+# ─────────────────────────────────────────────────────────────
+# TEST-SET PREDICTIONS
+# ─────────────────────────────────────────────────────────────
 
-# Align Prophet predictions to the exact test dates
-test_months  = test["Month"].values
+y_true     = y_test.values
+naive_pred = test["lag_1"].values
+lr_pred    = lr.predict(X_test)
+xgb_pred   = xgb.predict(X_test)
+
+future_prophet  = prophet_model.make_future_dataframe(periods=TEST_SIZE, freq="MS")
 prophet_pred = (
-    forecast.set_index("ds")["yhat"]
-    .reindex(test_months)
-    .clip(lower=0)          # revenue cannot be negative
+    prophet_model.predict(future_prophet)
+    .set_index("ds")["yhat"]
+    .reindex(test["Month"].values)
+    .clip(lower=0)
     .values
 )
 
 # ─────────────────────────────────────────────────────────────
-# EVALUATION
+# METRICS TABLE
 # ─────────────────────────────────────────────────────────────
-
-def mape(y_true, y_pred):
-    y_true, y_pred = np.array(y_true), np.array(y_pred)
-    # avoid division by zero for any month with zero revenue
-    mask = y_true != 0
-    return round(np.mean(np.abs((y_true[mask] - y_pred[mask]) / y_true[mask])) * 100, 2)
-
-def compute_metrics(name: str, y_true, y_pred) -> dict:
-    """Return MAE, RMSE, R², and MAPE for one model."""
-    y_true = np.array(y_true)
-    y_pred = np.array(y_pred)
-    return {
-        "Model": name,
-        "MAE":      round(mean_absolute_error(y_true, y_pred), 2),
-        "RMSE":     round(np.sqrt(mean_squared_error(y_true, y_pred)), 2),
-        "R²":       round(r2_score(y_true, y_pred), 4),
-        "MAPE (%)": mape(y_true, y_pred),
-    }
-
-y_true = y_test.values
 
 results = pd.DataFrame([
     compute_metrics("Naive",             y_true, naive_pred),
@@ -208,10 +226,9 @@ results = pd.DataFrame([
 ]).set_index("Model")
 
 # ─────────────────────────────────────────────────────────────
-# STREAMLIT UI
+# UI — MODEL SELECTOR & ACTUAL vs PREDICTED
 # ─────────────────────────────────────────────────────────────
 
-# Model selector
 model_choice = st.selectbox(
     "Select model to inspect",
     ["Naive", "Linear Regression", "XGBoost", "Prophet"],
@@ -223,50 +240,46 @@ pred_map = {
     "XGBoost":            xgb_pred,
     "Prophet":            prophet_pred,
 }
-selected_pred = pred_map[model_choice]
-
-# ─────────────────────────────────────────────────────────────
-# CHART 1 — Actual vs Predicted (selected model)
-# ─────────────────────────────────────────────────────────────
 
 chart_df = pd.DataFrame({
     "Month":     test["Month"].values,
     "Actual":    y_true,
-    "Predicted": selected_pred,
+    "Predicted": pred_map[model_choice],
 })
 
 fig = go.Figure()
 fig.add_trace(go.Scatter(
     x=chart_df["Month"], y=chart_df["Actual"],
-    name="Actual", line=dict(color="#1f2937", width=2), mode="lines+markers"
+    name="Actual", line=dict(color="#1f2937", width=2), mode="lines+markers",
 ))
 fig.add_trace(go.Scatter(
     x=chart_df["Month"], y=chart_df["Predicted"],
     name="Predicted", line=dict(color="#f59e0b", width=2, dash="dot"),
-    mode="lines+markers"
+    mode="lines+markers",
 ))
 fig.update_layout(
     title=f"{model_choice} — Actual vs Predicted Revenue",
-    template="plotly_white",
-    hovermode="x unified",
-    xaxis_title="Month",
-    yaxis_title="Revenue ($)",
-    height=380,
+    template="plotly_white", hovermode="x unified",
+    xaxis_title="Month", yaxis_title="Revenue ($)", height=380,
 )
 st.plotly_chart(fig, use_container_width=True)
 
 # ─────────────────────────────────────────────────────────────
-# CHART 2 — All models on one chart (for comparison)
+# UI — ALL MODELS COMPARISON
 # ─────────────────────────────────────────────────────────────
 
 with st.expander("Compare all models side by side"):
     fig_all = go.Figure()
     fig_all.add_trace(go.Scatter(
         x=test["Month"], y=y_true,
-        name="Actual", line=dict(color="#1f2937", width=2.5)
+        name="Actual", line=dict(color="#1f2937", width=2.5),
     ))
-    colors = {"Naive": "#9ca3af", "Linear Regression": "#3b82f6",
-              "XGBoost": "#f59e0b", "Prophet": "#ef4444"}
+    colors = {
+        "Naive":              "#9ca3af",
+        "Linear Regression":  "#3b82f6",
+        "XGBoost":            "#f59e0b",
+        "Prophet":            "#ef4444",
+    }
     for name, pred in pred_map.items():
         fig_all.add_trace(go.Scatter(
             x=test["Month"], y=pred, name=name,
@@ -281,7 +294,7 @@ with st.expander("Compare all models side by side"):
     st.plotly_chart(fig_all, use_container_width=True)
 
 # ─────────────────────────────────────────────────────────────
-# METRICS TABLE
+# UI — METRICS TABLE
 # ─────────────────────────────────────────────────────────────
 
 st.subheader("Model Performance Comparison")
@@ -299,60 +312,75 @@ st.dataframe(
 )
 
 # ─────────────────────────────────────────────────────────────
-# FUTURE FORECAST — Prophet
+# FUTURE FORECAST — XGBoost (recursive one-step-ahead)
 # ─────────────────────────────────────────────────────────────
 
-st.subheader("Future Forecast (Prophet — next 12 months)")
+st.subheader(f"Future Forecast (XGBoost — next {FORECAST_HORIZON} months)")
 
-future_extended  = prophet_model.make_future_dataframe(
-    periods=TEST_SIZE + 12, freq="MS"
+# Use the FULL monthly_revenue series as history so all lags are well-defined
+future_dates, xgb_future_pred = xgb_recursive_forecast(
+    model=xgb,
+    history=monthly_revenue,
+    horizon=FORECAST_HORIZON,
 )
-forecast_extended = prophet_model.predict(future_extended)
-future_only = forecast_extended[
-    forecast_extended["ds"] > monthly_revenue.index[-1]
-][["ds", "yhat", "yhat_lower", "yhat_upper"]].head(12)
 
 fig2 = go.Figure()
 
 # Historical actuals
 fig2.add_trace(go.Scatter(
     x=monthly_revenue.index, y=monthly_revenue.values,
-    name="Historical", line=dict(color="#1f2937", width=2)
+    name="Historical", line=dict(color="#1f2937", width=2),
 ))
 
-# Confidence band
+# XGBoost forecast
 fig2.add_trace(go.Scatter(
-    x=pd.concat([future_only["ds"], future_only["ds"].iloc[::-1]]),
-    y=pd.concat([future_only["yhat_upper"], future_only["yhat_lower"].iloc[::-1]]),
-    fill="toself", fillcolor="rgba(239,68,68,0.1)",
-    line=dict(color="rgba(0,0,0,0)"), name="80% Confidence Interval",
+    x=future_dates, y=xgb_future_pred,
+    name="XGBoost Forecast",
+    line=dict(color="#f59e0b", width=2.5, dash="dot"),
+    mode="lines+markers", marker=dict(size=7, symbol="circle"),
 ))
 
-# Forecast line
-fig2.add_trace(go.Scatter(
-    x=future_only["ds"], y=future_only["yhat"].clip(lower=0),
-    name="Prophet Forecast",
-    line=dict(color="#ef4444", width=2, dash="dot"),
-    mode="lines+markers", marker=dict(size=6),
-))
+# Thin vertical line separating history from forecast
+forecast_start = monthly_revenue.index[-1].isoformat()
+
+fig2.add_shape(
+    type="line",
+    x0=forecast_start, x1=forecast_start,
+    y0=0, y1=1,
+    xref="x", yref="paper",
+    line=dict(width=1, dash="dash", color="#6b7280"),
+)
+fig2.add_annotation(
+    x=forecast_start,
+    y=1,
+    xref="x", yref="paper",
+    text="Forecast start",
+    showarrow=False,
+    xanchor="left",
+    yanchor="bottom",
+    font=dict(color="#6b7280", size=12),
+)
+
 
 fig2.update_layout(
-    title="Prophet — Next 12 Months Revenue Forecast",
+    title=f"XGBoost — Next {FORECAST_HORIZON} Months Revenue Forecast (Recursive)",
     template="plotly_white",
     hovermode="x unified",
     xaxis_title="Month",
     yaxis_title="Revenue ($)",
-    height=400,
+    height=420,
+    legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
 )
 st.plotly_chart(fig2, use_container_width=True)
 
 # Download forecast
+forecast_df = pd.DataFrame({
+    "Month":    future_dates.strftime("%Y-%m-%d"),
+    "Forecast": xgb_future_pred.round(2),
+})
 st.download_button(
-    "Download forecast CSV",
-    data=future_only.rename(columns={
-        "ds": "Month", "yhat": "Forecast",
-        "yhat_lower": "Lower bound", "yhat_upper": "Upper bound"
-    }).to_csv(index=False).encode("utf-8"),
-    file_name="prophet_forecast.csv",
+    "⬇ Download XGBoost forecast CSV",
+    data=forecast_df.to_csv(index=False).encode("utf-8"),
+    file_name="xgboost_forecast.csv",
     mime="text/csv",
 )
