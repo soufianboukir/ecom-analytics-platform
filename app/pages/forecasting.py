@@ -254,7 +254,7 @@ fig.add_trace(go.Scatter(
 ))
 fig.add_trace(go.Scatter(
     x=chart_df["Month"], y=chart_df["Predicted"],
-    name="Predicted", line=dict(color="#f59e0b", width=2, dash="dot"),
+    name="Predicted", line=dict(color="#0baff5", width=2, dash="dot"),
     mode="lines+markers",
 ))
 fig.update_layout(
@@ -336,7 +336,7 @@ fig2.add_trace(go.Scatter(
 fig2.add_trace(go.Scatter(
     x=future_dates, y=xgb_future_pred,
     name="XGBoost Forecast",
-    line=dict(color="#f59e0b", width=2.5, dash="dot"),
+    line=dict(color="#0b97f5", width=2.5, dash="dot"),
     mode="lines+markers", marker=dict(size=7, symbol="circle"),
 ))
 

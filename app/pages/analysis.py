@@ -68,7 +68,7 @@ with tab1:
         cat_rev, x="Category", y="TotalAmount",
         title="Revenue by Category",
         color="TotalAmount",
-        color_continuous_scale=["#FFE8C2", "#FF9900"],
+        color_continuous_scale=["#C2EBFF", "#0091FF"],
         template="plotly_white"
     )
     fig1.update_layout(margin=dict(l=0, r=0, t=36, b=0),
@@ -88,7 +88,7 @@ with tab2:
         orientation="h",
         title="Top 10 Brands by Revenue",
         color="TotalAmount",
-        color_continuous_scale=["#FFE8C2", "#FF9900"],
+        color_continuous_scale=["#C2EBFF", "#0091FF"],
         template="plotly_white"
     )
     fig2.update_layout(margin=dict(l=0, r=0, t=36, b=0),
@@ -173,7 +173,7 @@ fig6 = px.imshow(
     pivot,
     aspect="auto",
     title="Monthly Revenue Heatmap (Category vs Month)",
-    color_continuous_scale=["#FFE8C2", "#FF9900"]
+    color_continuous_scale=["#C2E3FF", "#0080FF"]
 )
 
 fig6.update_layout(

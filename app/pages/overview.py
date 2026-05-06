@@ -77,10 +77,10 @@ with c1:
     fig = px.area(
         monthly, x="Month", y="Revenue",
         title="Monthly Revenue Trend",
-        color_discrete_sequence=["#FF9900"],
+        color_discrete_sequence=["#00C3FF"],
         template="plotly_white"
     )
-    fig.update_traces(line_width=2, fillcolor="rgba(255,153,0,0.15)")
+    fig.update_traces(line_width=2, fillcolor="rgba(0,153,255,0.15)")
     fig.update_layout(margin=dict(l=0, r=0, t=36, b=0), height=220,
                       showlegend=False, yaxis_title=None, xaxis_title=None)
     st.plotly_chart(fig, use_container_width=True)
@@ -94,7 +94,7 @@ with c2:
     fig2 = px.bar(
         top_countries, x="TotalAmount", y="Country",
         orientation="h", title="Top 5 Countries by Revenue",
-        color="TotalAmount", color_continuous_scale=["#FFE8C2", "#FF9900"],
+        color="TotalAmount", color_continuous_scale=["#C2F8FF", "#00A2FF"],
         template="plotly_white"
     )
     fig2.update_layout(margin=dict(l=0, r=0, t=36, b=0), height=220,
@@ -110,7 +110,7 @@ with c3:
         top_cats, values="TotalAmount", names="Category",
         title="Top 5 Categories",
         hole=0.55,
-        color_discrete_sequence=["#FF9900","#FFB347","#FFC875","#FFD9A0","#FFE8C2"],
+        color_discrete_sequence=["#008CFF","#47BFFF","#75E6FF","#A0D4FF","#C2D6FF"],
     )
     fig3.update_traces(textinfo="percent", hovertemplate="%{label}: $%{value:,.0f}")
     fig3.update_layout(margin=dict(l=0, r=0, t=36, b=0), height=220,
