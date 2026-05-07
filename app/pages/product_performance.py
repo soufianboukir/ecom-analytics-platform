@@ -60,7 +60,7 @@ if fdf.empty:
 # SHARED STYLES
 # ─────────────────────────────────────────────────────────────
 
-PALETTE = ["#f59e0b","#3b82f6","#10b981","#8b5cf6","#ef4444","#f97316","#14b8a6","#ec4899"]
+PALETTE = ["#0b69f5","#3b82f6","#10b981","#8b5cf6","#ef4444","#f97316","#14b8a6","#ec4899"]
 LAYOUT  = dict(
     template="plotly_white",
     font=dict(family="Inter, sans-serif", color="#1f2937"),
@@ -68,7 +68,7 @@ LAYOUT  = dict(
     margin=dict(l=10, r=10, t=45, b=10),
 )
 
-def hbar(df_plot, x, y, title, color="#f59e0b", height=420):
+def hbar(df_plot, x, y, title, color="#0bdef5", height=420):
     fig = go.Figure(go.Bar(
         x=df_plot[x], y=df_plot[y], orientation="h",
         marker=dict(
@@ -102,7 +102,7 @@ else:
     with tab_rev:
         top_rev = agg.nlargest(top_n, "Revenue").sort_values("Revenue")
         st.plotly_chart(
-            hbar(top_rev, "Revenue", PRODUCT_COL, f"Top {top_n} Products by Revenue"),
+            hbar(top_rev, "Revenue", PRODUCT_COL, f"Top {top_n} Products by Revenue", color="#3b82f6"),
             use_container_width=True,
         )
 
@@ -150,7 +150,7 @@ else:
     fig_cat.update_layout(
         **LAYOUT, barmode="group", height=380,
         title="Revenue vs Shipping vs Tax vs Margin by Category",
-        xaxis_title="Category", yaxis=dict(tickprefix="$", tickformat=",.0f", gridcolor="#f3f4f6"),
+        xaxis_title="Category", yaxis=dict(tickprefix="$", tickformat=",.0f", gridcolor="rgba(150,150,150,0.2)"),
         legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
     )
     st.plotly_chart(fig_cat, use_container_width=True)
@@ -193,7 +193,7 @@ else:
         x="AvgPrice", y="AvgQty",
         size="Revenue", color="Revenue",
         hover_name=BRAND_COL,
-        color_continuous_scale=[[0,"#fde68a"],[0.5,"#f59e0b"],[1,"#92400e"]],
+        color_continuous_scale=[[0,"#8ad1fd"],[0.5,"#0b7cf5"],[1,"#0e3892"]],
         size_max=50,
         labels={"AvgPrice": "Avg Unit Price ($)", "AvgQty": "Avg Quantity Ordered"},
         hover_data={"Orders": True, "Revenue": ":$,.0f"},
@@ -238,7 +238,7 @@ else:
                 border-radius:8px;padding:14px 18px">
                 <p style="margin:0;font-size:11px;color:#6b7280;text-transform:uppercase;
                 letter-spacing:.06em;font-weight:600">{label}</p>
-                <p style="margin:4px 0 0;font-size:24px;font-weight:700;color:#1f2937">{val}</p>
+                <p style="margin:4px 0 0;font-size:24px;font-weight:700;">{val}</p>
                 </div>""",
                 unsafe_allow_html=True,
             )
@@ -257,16 +257,16 @@ else:
         fig_drill.add_trace(go.Scatter(
             x=monthly["Month"], y=monthly["Revenue"],
             mode="lines+markers",
-            line=dict(color="#f59e0b", width=2),
+            line=dict(color="#0b49f5", width=2),
             marker=dict(size=6),
-            fill="tozeroy", fillcolor="rgba(245,158,11,0.08)",
+            fill="tozeroy", fillcolor="rgba(116,158,245,0.08)",
             hovertemplate="$%{y:,.0f}<extra></extra>",
         ))
         fig_drill.update_layout(
             **LAYOUT, height=300,
             title=f"Monthly Revenue — {selected}",
             xaxis_title="Month",
-            yaxis=dict(tickprefix="$", tickformat=",.0f", gridcolor="#f3f4f6"),
+            yaxis=dict(tickprefix="$", tickformat=",.0f", gridcolor="rgba(150,150,150,0.2)"),
         )
         st.plotly_chart(fig_drill, use_container_width=True)
 
