@@ -283,3 +283,465 @@ else:
                 }),
                 use_container_width=True, hide_index=True,
             )
+
+
+
+
+
+
+import streamlit as st
+import pandas as pd
+import plotly.graph_objects as go
+from pathlib import Path
+
+# ─────────────────────────────────────────────────────────────
+# PATHS
+# ─────────────────────────────────────────────────────────────
+BASE_DIR = Path(__file__).resolve().parent.parent.parent
+DATA_PATH = BASE_DIR / "data" / "processed" / "amazon_sales_final.csv"
+
+# ─────────────────────────────────────────────────────────────
+# LOAD DATA
+# ─────────────────────────────────────────────────────────────
+@st.cache_data
+def load_data() -> pd.DataFrame:
+    df = pd.read_csv(DATA_PATH)
+
+    df["OrderDate"] = pd.to_datetime(
+        df["OrderDate"],
+        dayfirst=True,
+        errors="coerce"
+    )
+
+    return df.dropna(subset=["OrderDate"])
+
+
+df = load_data()
+
+# ─────────────────────────────────────────────────────────────
+# COLUMN DETECTION
+# ─────────────────────────────────────────────────────────────
+def find_col(candidates):
+    return next(
+        (c for c in df.columns if c.lower() in candidates),
+        None
+    )
+
+STATUS_COL = find_col(["orderstatus", "order_status", "status"])
+COUNTRY_COL = find_col(["country"])
+CATEGORY_COL = find_col(["category"])
+AMOUNT_COL = find_col(["totalamount", "total_amount", "amount"])
+PRODUCT_COL = find_col([
+    "productname"
+])
+# ─────────────────────────────────────────────────────────────
+# PAGE TITLE
+# ─────────────────────────────────────────────────────────────
+st.subheader("Return Analysis — By Country & Category")
+
+# ─────────────────────────────────────────────────────────────
+# VALIDATION
+# ─────────────────────────────────────────────────────────────
+if not STATUS_COL:
+    st.error("No order status column found.")
+    st.stop()
+
+if not AMOUNT_COL:
+    st.error("No revenue column found.")
+    st.stop()
+
+# safer string handling
+returned = df[
+    df[STATUS_COL]
+    .astype(str)
+    .str.lower()
+    .str.contains("return", na=False)
+]
+
+if returned.empty:
+    st.warning("No returned orders found in the dataset.")
+    st.stop()
+
+# ─────────────────────────────────────────────────────────────
+# KPIs
+# ─────────────────────────────────────────────────────────────
+total_orders = len(df)
+returned_orders = len(returned)
+
+return_rate = (
+    (returned_orders / total_orders) * 100
+    if total_orders > 0 else 0
+)
+
+lost_revenue = returned[AMOUNT_COL].fillna(0).sum()
+
+k1, k2, k3 = st.columns(3)
+
+kpi_data = [
+    (k1, "Total Returned Orders", f"{returned_orders:,}", "#ef4444"),
+    (k2, "Return Rate", f"{return_rate:.2f}%", "#f97316"),
+    (k3, "Est. Lost Revenue", f"${lost_revenue:,.0f}", "#8b5cf6"),
+]
+
+for box, label, value, color in kpi_data:
+    box.markdown(
+        f"""<div style="border:1px solid #e5e7eb;border-top:3px solid {color};border-radius:8px;padding:14px 18px;"><p style="margin:0;font-size:11px;text-transform:uppercase;letter-spacing:.06em;font-weight:600;">{label}</p><p style="margin:4px 0 0;font-size:24px;font-weight:700;">{value}</p></div>""",
+        unsafe_allow_html=True,
+    )
+
+st.markdown("<br>", unsafe_allow_html=True)
+
+# ─────────────────────────────────────────────────────────────
+# COMMON LAYOUT
+# ─────────────────────────────────────────────────────────────
+LAYOUT = dict(
+    template="plotly_white",
+    font=dict(
+        family="Inter, sans-serif",
+        color="#1f2937"
+    ),
+    paper_bgcolor="rgba(0,0,0,0)",
+    margin=dict(l=10, r=10, t=45, b=10),
+)
+
+tab1, tab2, tab3, tab4 = st.tabs([
+    "By Country",
+    "By Category",
+    "Country x Category Heatmap",
+    "Top Returned Products"
+])
+
+# ─────────────────────────────────────────────────────────────
+# TAB 1 — COUNTRY
+# ─────────────────────────────────────────────────────────────
+with tab1:
+
+    if not COUNTRY_COL:
+        st.info("No country column found.")
+
+    else:
+
+        country_ret = (
+            returned.groupby(COUNTRY_COL)
+            .agg(
+                Returns=(AMOUNT_COL, "count"),
+                LostRevenue=(AMOUNT_COL, "sum")
+            )
+            .join(
+                df.groupby(COUNTRY_COL)
+                .size()
+                .rename("Total")
+            )
+            .reset_index()
+        )
+
+        country_ret["ReturnRate%"] = (
+            country_ret["Returns"] /
+            country_ret["Total"]
+        ).fillna(0) * 100
+
+        country_ret["ReturnRate%"] = (
+            country_ret["ReturnRate%"]
+            .round(2)
+        )
+
+        country_ret = country_ret.sort_values(
+            "Returns",
+            ascending=True
+        )
+
+        fig1 = go.Figure()
+
+        fig1.add_trace(go.Bar(
+            y=country_ret[COUNTRY_COL],
+            x=country_ret["Returns"],
+            orientation="h",
+
+            marker=dict(
+                color=country_ret["Returns"],
+                colorscale=[
+                    [0, "#fecaca"],
+                    [1, "#b91c1c"]
+                ],
+                showscale=False
+            ),
+
+            customdata=country_ret[
+                ["LostRevenue", "ReturnRate%"]
+            ].values,
+
+            hovertemplate=(
+                "<b>%{y}</b><br>"
+                "Returns: %{x:,}<br>"
+                "Lost Revenue: $%{customdata[0]:,.0f}<br>"
+                "Return Rate: %{customdata[1]:.2f}%"
+                "<extra></extra>"
+            ),
+        ))
+
+        fig1.update_layout(
+            **LAYOUT,
+            height=320,
+            title="Returned Orders by Country",
+            xaxis=dict(
+                title="Returns",
+                gridcolor="#f3f4f6"
+            ),
+            yaxis=dict(title="")
+        )
+
+        st.plotly_chart(
+            fig1,
+            use_container_width=True
+        )
+
+# ─────────────────────────────────────────────────────────────
+# TAB 2 — CATEGORY
+# ─────────────────────────────────────────────────────────────
+with tab2:
+
+    if not CATEGORY_COL:
+        st.info("No category column found.")
+
+    else:
+
+        cat_ret = (
+            returned.groupby(CATEGORY_COL)
+            .agg(
+                Returns=(AMOUNT_COL, "count"),
+                LostRevenue=(AMOUNT_COL, "sum")
+            )
+            .join(
+                df.groupby(CATEGORY_COL)
+                .size()
+                .rename("Total")
+            )
+            .reset_index()
+        )
+
+        cat_ret["ReturnRate%"] = (
+            cat_ret["Returns"] /
+            cat_ret["Total"]
+        ).fillna(0) * 100
+
+        cat_ret["ReturnRate%"] = (
+            cat_ret["ReturnRate%"]
+            .round(2)
+        )
+
+        cat_ret = cat_ret.sort_values(
+            "Returns",
+            ascending=False
+        )
+
+        fig2 = go.Figure()
+
+        fig2.add_trace(go.Bar(
+            x=cat_ret[CATEGORY_COL],
+            y=cat_ret["Returns"],
+            name="Returns",
+            marker_color="#ef4444"
+        ))
+
+        fig2.add_trace(go.Scatter(
+            x=cat_ret[CATEGORY_COL],
+            y=cat_ret["ReturnRate%"],
+            name="Return Rate %",
+            mode="lines+markers",
+            yaxis="y2",
+            line=dict(
+                color="#1f2937",
+                width=2,
+                dash="dot"
+            )
+        ))
+
+        fig2.update_layout(
+            **LAYOUT,
+            height=360,
+            title="Returns & Return Rate by Category",
+
+            xaxis=dict(
+                title="Category",
+                tickangle=-15
+            ),
+
+            yaxis=dict(
+                title="Returns",
+                gridcolor="#f3f4f6"
+            ),
+
+            yaxis2=dict(
+                title="Return Rate (%)",
+                overlaying="y",
+                side="right",
+                ticksuffix="%"
+            )
+        )
+
+        st.plotly_chart(
+            fig2,
+            use_container_width=True
+        )
+
+# ─────────────────────────────────────────────────────────────
+# TAB 3 — HEATMAP
+# ─────────────────────────────────────────────────────────────
+with tab3:
+
+    if not COUNTRY_COL or not CATEGORY_COL:
+        st.info("Country or Category column not found.")
+
+    else:
+
+        pivot = (
+            returned.groupby(
+                [COUNTRY_COL, CATEGORY_COL]
+            )
+            .size()
+            .reset_index(name="Returns")
+            .pivot(
+                index=COUNTRY_COL,
+                columns=CATEGORY_COL,
+                values="Returns"
+            )
+            .fillna(0)
+            .astype(int)
+        )
+
+        fig3 = go.Figure()
+
+        fig3.add_trace(go.Heatmap(
+            z=pivot.values,
+            x=pivot.columns,
+            y=pivot.index,
+
+            colorscale=[
+                [0, "#fff7ed"],
+                [0.5, "#f97316"],
+                [1, "#7c2d12"]
+            ],
+
+            hovertemplate=(
+                "<b>%{y} — %{x}</b><br>"
+                "Returns: %{z:,}"
+                "<extra></extra>"
+            ),
+
+            colorbar=dict(
+                title="Returns",
+                thickness=14,
+                len=0.7
+            )
+        ))
+
+        fig3.update_layout(
+            **LAYOUT,
+            height=380,
+            title="Return Count Heatmap — Country × Category",
+
+            xaxis=dict(
+                title="Category",
+                tickangle=-15
+            ),
+
+            yaxis=dict(title="Country")
+        )
+
+        st.plotly_chart(
+            fig3,
+            use_container_width=True
+        )
+
+        st.caption(
+            "Darker cells indicate higher return concentration."
+        )
+
+
+
+# ─────────────────────────────────────────────────────────────
+# TAB 4 — TOP RETURNED PRODUCTS
+# ─────────────────────────────────────────────────────────────
+with tab4:
+
+    if not PRODUCT_COL:
+        st.info("No product column found.")
+
+    else:
+
+        top_products = (
+            returned.groupby(PRODUCT_COL)
+            .agg(
+                Returns=(AMOUNT_COL, "count"),
+                LostRevenue=(AMOUNT_COL, "sum")
+            )
+            .reset_index()
+            .sort_values("Returns", ascending=False)
+            .head(10)
+        )
+
+        fig4 = go.Figure()
+
+        fig4.add_trace(go.Bar(
+            y=top_products[PRODUCT_COL],
+            x=top_products["Returns"],
+            orientation="h",
+
+            marker=dict(
+                color=top_products["Returns"],
+                colorscale=[
+                    [0, "#fde68a"],
+                    [1, "#dc2626"]
+                ],
+                showscale=False
+            ),
+
+            customdata=top_products["LostRevenue"],
+
+            hovertemplate=(
+                "<b>%{y}</b><br>"
+                "Returns: %{x:,}<br>"
+                "Lost Revenue: $%{customdata:,.0f}"
+                "<extra></extra>"
+            )
+        ))
+
+        fig4.update_layout(
+            **LAYOUT,
+
+            height=450,
+
+            title="Top 10 Most Returned Products",
+
+            xaxis=dict(
+                title="Number of Returns",
+                gridcolor="#f3f4f6"
+            ),
+
+            yaxis=dict(
+                title="",
+                autorange="reversed"
+            )
+        )
+
+        st.plotly_chart(
+            fig4,
+            use_container_width=True
+        )
+
+        st.dataframe(
+            top_products.rename(columns={
+                PRODUCT_COL: "Product",
+                "LostRevenue": "Lost Revenue ($)"
+            })
+            .style.format({
+                "Returns": "{:,}",
+                "Lost Revenue ($)": "${:,.0f}"
+            }),
+            use_container_width=True,
+            hide_index=True
+        )
+
+        st.caption(
+            "Products with the highest number of returns and estimated lost revenue."
+        )
