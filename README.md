@@ -1,9 +1,9 @@
-# 📦 E-Commerce Analytics & Forecasting Platform
+# E-Commerce Analytics & Forecasting Platform
 
 An end-to-end data science and business intelligence system built on 100,000 Amazon-style sales transactions — combining interactive dashboards, customer analytics, product performance analysis, and multi-model revenue forecasting.
 
 
-## 🔍 Overview
+## Overview
 
 This project develops a **5-page interactive Streamlit dashboard** that transforms raw e-commerce transactional data into actionable business intelligence. It covers the full data science pipeline:
 
@@ -22,7 +22,7 @@ The system is designed to answer real business questions:
 
 ---
 
-## 📁 Project Structure
+## Project Structure
 
 ```
 ecom-analytics-platform/
@@ -106,7 +106,7 @@ High-level business snapshot with 4 KPI cards, monthly revenue trend, top 5 coun
 
 ---
 
-## ⚙️ Installation
+## Installation
 
 ### 1. Clone the repository
 ```bash
