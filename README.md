@@ -2,7 +2,7 @@
 
 An end-to-end data science and business intelligence system built on 100,000 Amazon-style sales transactions — combining interactive dashboards, customer analytics, product performance analysis, and multi-model revenue forecasting.
 
-<img width="2048" height="1032" alt="image" src="https://github.com/user-attachments/assets/f9ed2147-5def-4287-9339-d60120921146" />
+<img width="2048" height="1032" alt="image" src="https://github.com/user-attachments/assets/a8200779-4919-4896-9408-4b345627051e" />
 
 
 ## Overview
