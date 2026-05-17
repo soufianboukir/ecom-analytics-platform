@@ -3,7 +3,7 @@
 An end-to-end data science and business intelligence system built on 100,000 Amazon-style sales transactions — combining interactive dashboards, customer analytics, product performance analysis, and multi-model revenue forecasting.
 
 ## 📄 Report
-- Full analysis report: [PDF](https://github.com/soufianboukir/ecom-analytics-platform/blob/main/reports/main.pdf)
+- Full analysis report: [PDF](https://github.com/soufianboukir/ecom-analytics-platform/blob/main/reports/customer-analystics-and-revenue-forecasting-system.pdf)
 - Streamlit dashboard: [Live App](https://ecom-analytics-forecasting-platform.streamlit.app/)
 
 <img width="2048" height="1032" alt="image" src="https://github.com/user-attachments/assets/a8200779-4919-4896-9408-4b345627051e" />
